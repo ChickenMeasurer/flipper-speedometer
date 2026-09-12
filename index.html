@@ -27,8 +27,10 @@
             const log = document.getElementById('log');
             try {
                 log.innerText = "Requesting Bluetooth Device...";
+                // Accept all devices to bypass Android Bluetooth filtering issues
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: [SERVICE_UUID] }]
+                    acceptAllDevices: true,
+                    optionalServices: [SERVICE_UUID]
                 });
 
                 log.innerText = "Connecting to GATT Server...";
