@@ -21,6 +21,8 @@
         const RX_UUID = "19ed82ae-ed21-4c9d-4145-228e61fe0000";
         
         let rxCharacteristic;
+        let latestMph = 0;
+        let isWriting = false;
 
         document.getElementById('connectBtn').addEventListener('click', async () => {
             const log = document.getElementById('log');
@@ -40,16 +42,17 @@
                 log.innerText = "Getting RX Characteristic...";
                 rxCharacteristic = await service.getCharacteristic(RX_UUID);
 
-                log.innerText = "Connected! Waiting for GPS movement...";
+                log.innerText = "Connected! Streaming speed...";
                 startGPS();
+                startTransmissionLoop();
             } catch (error) {
                 log.innerText = "BLE Error: " + error.message;
             }
         });
 
         function startGPS() {
-            const log = document.getElementById('log');
             const speedDisplay = document.getElementById('speed');
+            const log = document.getElementById('log');
 
             if (!navigator.geolocation) {
                 log.innerText = "GPS Error: Geolocation not supported.";
@@ -57,26 +60,32 @@
             }
 
             navigator.geolocation.watchPosition(
-                async (position) => {
+                (position) => {
                     const speedMps = position.coords.speed;
-                    const mph = speedMps ? Math.round(speedMps * 2.23694) : 0;
-                    
-                    speedDisplay.innerText = mph + " MPH";
-
-                    if (rxCharacteristic) {
-                        try {
-                            const encoder = new TextEncoder();
-                            // Append newline delimiter so the Flipper's serial parser reads the line
-                            await rxCharacteristic.writeValue(encoder.encode(mph.toString() + "\n"));
-                            log.innerText = "Successfully sent: " + mph;
-                        } catch (err) {
-                            log.innerText = "Write failed: " + err.message;
-                        }
-                    }
+                    latestMph = speedMps ? Math.round(speedMps * 2.23694) : 0;
+                    speedDisplay.innerText = latestMph + " MPH";
                 },
                 (error) => { log.innerText = "GPS Error: " + error.message; },
                 { enableHighAccuracy: true, maximumAge: 500 }
             );
+        }
+
+        // Send data on a stable 1-second interval to prevent GATT congestion
+        function startTransmissionLoop() {
+            const log = document.getElementById('log');
+            setInterval(async () => {
+                if (rxCharacteristic && !isWriting) {
+                    isWriting = true;
+                    try {
+                        const encoder = new TextEncoder();
+                        await rxCharacteristic.writeValue(encoder.encode(latestMph.toString() + "\n"));
+                        log.innerText = "Successfully sent: " + latestMph;
+                    } catch (err) {
+                        log.innerText = "Write failed: " + err.message;
+                    }
+                    isWriting = false;
+                }
+            }, 1000);
         }
     </script>
 </body>
