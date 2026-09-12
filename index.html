@@ -11,24 +11,39 @@
     </style>
 </head>
 <body>
-    <h2>Phone USB Bridge</h2>
-    <button id="connectBtn">Connect via USB</button>
+    <h2>Phone GPS Bridge</h2>
+    <button id="connectBtn">Connect to Flipper</button>
     <div id="speed">0 MPH</div>
     <div id="log">Waiting to connect...</div>
 
     <script>
-        let port, writer;
+        const SERVICE_UUID = "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000";
+        const RX_UUID = "19ed82ae-ed21-4c9d-4145-228e61fe0000";
+        
+        let rxCharacteristic;
 
         document.getElementById('connectBtn').addEventListener('click', async () => {
             const log = document.getElementById('log');
             try {
-                port = await navigator.serial.requestPort();
-                await port.open({ baudRate: 115200 });
-                writer = port.writable.getWriter();
-                log.innerText = "USB Connected! Starting GPS...";
+                log.innerText = "Requesting Bluetooth Device...";
+                const device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: [SERVICE_UUID]
+                });
+
+                log.innerText = "Connecting to GATT Server...";
+                const server = await device.gatt.connect();
+
+                log.innerText = "Getting Serial Service...";
+                const service = await server.getPrimaryService(SERVICE_UUID);
+
+                log.innerText = "Getting RX Characteristic...";
+                rxCharacteristic = await service.getCharacteristic(RX_UUID);
+
+                log.innerText = "Connected! Waiting for GPS movement...";
                 startGPS();
             } catch (error) {
-                log.innerText = "USB Error: " + error.message;
+                log.innerText = "BLE Error: " + error.message;
             }
         });
 
@@ -37,7 +52,7 @@
             const speedDisplay = document.getElementById('speed');
 
             if (!navigator.geolocation) {
-                log.innerText = "GPS Error: Not supported.";
+                log.innerText = "GPS Error: Geolocation not supported.";
                 return;
             }
 
@@ -48,11 +63,12 @@
                     
                     speedDisplay.innerText = mph + " MPH";
 
-                    if (writer) {
+                    if (rxCharacteristic) {
                         try {
                             const encoder = new TextEncoder();
-                            await writer.write(encoder.encode(mph.toString() + "\n"));
-                            log.innerText = "Sent via USB: " + mph;
+                            // Append newline delimiter so the Flipper's serial parser reads the line
+                            await rxCharacteristic.writeValue(encoder.encode(mph.toString() + "\n"));
+                            log.innerText = "Successfully sent: " + mph;
                         } catch (err) {
                             log.innerText = "Write failed: " + err.message;
                         }
