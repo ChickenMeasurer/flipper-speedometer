@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Flipper Speedometer</title>
+    <style>
+        body { font-family: system-ui, sans-serif; text-align: center; background: #121212; color: white; padding-top: 40px; }
+        button { background: #ff8c00; color: black; border: none; padding: 15px 30px; font-size: 1.2rem; font-weight: bold; border-radius: 8px; cursor: pointer; margin-bottom: 20px;}
+        #speed { font-size: 5rem; font-weight: bold; margin: 20px 0; }
+        #log { color: #888; font-family: monospace; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <h2>Phone GPS Bridge</h2>
+    <button id="connectBtn">Connect to Flipper</button>
+    <div id="speed">0 MPH</div>
+    <div id="log">Waiting to connect...</div>
+
+    <script>
+        // Official Flipper Zero Serial Profile UUIDs
+        const SERVICE_UUID = "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000";
+        const RX_UUID = "19ed82ae-ed21-4c9d-4145-228e62fe0000";
+        
+        let txCharacteristic;
+
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            const log = document.getElementById('log');
+            try {
+                log.innerText = "Requesting Bluetooth Device...";
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [SERVICE_UUID] }]
+                });
+
+                log.innerText = "Connecting to GATT Server...";
+                const server = await device.gatt.connect();
+
+                log.innerText = "Getting Serial Service...";
+                const service = await server.getPrimaryService(SERVICE_UUID);
+
+                log.innerText = "Getting RX Characteristic...";
+                txCharacteristic = await service.getCharacteristic(RX_UUID);
+
+                log.innerText = "Connected! Starting GPS...";
+                startGPS();
+            } catch (error) {
+                log.innerText = "BLE Error: " + error.message;
+            }
+        });
+
+        function startGPS() {
+            const log = document.getElementById('log');
+            const speedDisplay = document.getElementById('speed');
+
+            if (!navigator.geolocation) {
+                log.innerText = "GPS Error: Geolocation not supported.";
+                return;
+            }
+
+            navigator.geolocation.watchPosition(
+                async (position) => {
+                    // HTML5 GPS returns speed in meters per second. Convert to MPH.
+                    const speedMps = position.coords.speed;
+                    const mph = speedMps ? Math.round(speedMps * 2.23694) : 0;
+                    
+                    speedDisplay.innerText = mph + " MPH";
+                    log.innerText = "Sending: " + mph;
+
+                    // Send the string to the Flipper
+                    if (txCharacteristic) {
+                        try {
+                            const encoder = new TextEncoder();
+                            await txCharacteristic.writeValue(encoder.encode(mph.toString()));
+                        } catch (err) {
+                            console.error("Write failed: ", err);
+                        }
+                    }
+                },
+                (error) => { log.innerText = "GPS Error: " + error.message; },
+                { enableHighAccuracy: true, maximumAge: 500 }
+            );
+        }
+    </script>
+</body>
+</html>
